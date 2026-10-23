@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>卓球 試合順・ランキング</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#17202a;background:#f4f7f8}
+*{box-sizing:border-box}body{margin:0}header{background:#087f5b;color:white;padding:18px 16px}
+main{max-width:1100px;margin:auto;padding:16px;display:grid;gap:16px}
+.panel{background:white;border-radius:14px;padding:16px;box-shadow:0 2px 12px #132a3510}
+h1{font-size:1.35rem;margin:0 0 6px}h2{font-size:1.12rem;margin:0 0 12px}
+.muted{color:#61717b;font-size:.9rem}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input,button,select{font:inherit;border-radius:9px;padding:9px 11px;border:1px solid #ccd6da}
+input{min-width:0}button{cursor:pointer;background:#087f5b;color:white;border:0;font-weight:650}
+button.secondary{background:#e9f2ef;color:#075c43}button.danger{background:#fff0ef;color:#a42c25}
+button:disabled{opacity:.45;cursor:not-allowed}.grow{flex:1}
+#status{font-size:.9rem;margin-top:7px}.ok{color:#d7ffeb}.bad{color:#ffd8d5}
+.player{display:grid;grid-template-columns:42px minmax(90px,1fr) 95px auto;gap:8px;align-items:center;padding:9px 0;border-bottom:1px solid #edf0f1}
+.rank{font-weight:800;color:#087f5b}.pname{font-weight:650;overflow-wrap:anywhere}.points{width:95px}
+.pill{font-size:.75rem;background:#edf7f2;color:#087f5b;border-radius:20px;padding:3px 8px}
+.tablegrid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px}
+.tablecard{border:1px solid #cfded8;border-radius:12px;padding:10px;min-width:0}
+.tablehead{background:#e2f3eb;text-align:center;border-radius:8px;padding:8px;font-weight:800;margin-bottom:8px}
+.role{font-size:.83rem;padding:6px 0;border-bottom:1px solid #edf0f1;overflow-wrap:anywhere}
+.empty{color:#7a878e;font-size:.85rem;padding:5px 0}
+small{color:#61717b}.toprow{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap}
+@media(max-width:650px){.tablegrid{grid-template-columns:repeat(2,minmax(0,1fr))}.player{grid-template-columns:28px minmax(70px,1fr) 78px auto;gap:5px}.points{width:78px}main{padding:10px}.panel{padding:12px}}
+</style>
+</head>
+<body>
+<header><h1>🏓 卓球 試合順・ランキング</h1><div>ランキング・休み／復帰・卓球台配置をリアルタイム共有</div><div id="status" class="bad">Supabaseの設定が必要です</div></header>
+<main>
+<section class="panel">
+  <div class="toprow"><h2>共有設定</h2><span class="pill" id="roomLabel"></span></div>
+  <p class="muted">同じ共有コードのページを開くと同じデータを表示します。別のグループは別の共有コードを使ってください。</p>
+  <div class="row"><label for="roomInput">共有コード</label><input id="roomInput" value="club1" maxlength="40"><button id="changeRoom" class="secondary">この共有コードを開く</button></div>
+  <p class="muted">初回は下の説明に従ってSupabaseのURLと公開用 anon keyを設定してください。</p>
+</section>
+<section class="panel">
+  <h2>選手を追加</h2>
+  <form id="addForm" class="row"><input id="nameInput" class="grow" placeholder="選手名" required maxlength="60"><input id="pointsInput" type="number" value="0" min="0" step="1" aria-label="ポイント" style="width:110px"><button type="submit">追加</button></form>
+</section>
+<section class="panel">
+  <div class="toprow"><h2>ポイントランキング</h2><div><span id="activeCount">0</span>人参加中 / <span id="restCount">0</span>人休み</div></div>
+  <div id="playersList"><p class="muted">Supabaseを設定すると選手一覧が表示されます。</p></div>
+</section>
+<section class="panel">
+  <div class="toprow"><h2>卓球台の配置</h2><div class="row"><label for="tableCount">台数</label><select id="tableCount">
+    <option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option><option>6</option><option>7</option><option>8</option><option>9</option><option>10</option><option>11</option><option>12</option><option>13</option><option>14</option>
+  </select></div></div>
+  <p class="muted">1台につき上から選手2人・審判1人。上段は最大8台、9台目以降は下段に並びます。3人に満たない台は未完成として表示します。</p>
+  <div id="tableGrid" class="tablegrid"></div>
+</section>
+<section class="panel">
+  <h2>共有方法</h2><p class="muted">このページのURL末尾に <code>?room=club1</code> のような共有コードが付きます。同じURLをみんなに送ってください。URLを知っている人は編集できる試作設定です。公開運用前にログイン制限を追加してください。</p>
+</section>
+</main>
+<script>
+(() => {
+  // Supabaseの Project URL と anon public key をここに設定します。
+  const SUPABASE_URL = "YOUR_SUPABASE_URL";
+  const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
+  const configured = SUPABASE_URL.startsWith("https://") && !SUPABASE_URL.includes("YOUR_") && !SUPABASE_ANON_KEY.includes("YOUR_");
+  const client = configured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+  const $ = id => document.getElementById(id);
+  const params = new URLSearchParams(location.search);
+  let room = (params.get("room") || "club1").replace(/[^a-zA-Z0-9_-]/g,"").slice(0,40) || "club1";
+  let players = [];
+  let settings = {table_count:3};
+  let channel = null;
+  let loading = false;
+  $("roomInput").value = room;
+  $("roomLabel").textContent = "共有コード: " + room;
+
+  function status(msg, ok=false){ $("status").textContent=msg; $("status").className=ok?"ok":"bad"; }
+  function sorted(){ return [...players].sort((a,b)=>Number(b.points)-Number(a.points) || String(a.name).localeCompare(String(b.name),"ja")); }
+
+  function renderPlayers(){
+    const list = $("playersList"); const ranking = sorted();
+    $("activeCount").textContent = ranking.filter(p=>!p.resting).length;
+    $("restCount").textContent = ranking.filter(p=>p.resting).length;
+    if(!ranking.length){list.innerHTML='<p class="muted">選手がいません。上から選手を追加してください。</p>';return;}
+    list.innerHTML="";
+    ranking.forEach((p,i)=>{
+      const row=document.createElement("div");row.className="player";
+      const rank=document.createElement("div");rank.className="rank";rank.textContent=i+1;
+      const name=document.createElement("div");name.className="pname";name.textContent=p.name+(p.resting?" (休み中)":"");
+      const points=document.createElement("input");points.className="points";points.type="number";points.min="0";points.step="1";points.value=p.points;points.title="ポイント";
+      points.addEventListener("change",()=>updatePlayer(p.id,{points:Math.max(0,Number(points.value)||0)}));
+      const action=document.createElement("button");action.className=p.resting?"secondary":"danger";action.textContent=p.resting?"復帰":"休む";
+      action.addEventListener("click",()=>updatePlayer(p.id,{resting:!p.resting}));
+      row.append(rank,name,points,action);list.append(row);
+    });
+  }
+
+  function renderTables(){
+    const count=Number(settings.table_count)||3;
+    $("tableCount").value=String(count);
+    const active=sorted().filter(p=>!p.resting);
+    const grid=$("tableGrid");grid.innerHTML="";
+    for(let i=0;i<count;i++){
+      const group=active.slice(i*3,i*3+3);
+      const card=document.createElement("div");card.className="tablecard";
+      const head=document.createElement("div");head.className="tablehead";head.textContent="卓球台 "+(i+1);card.append(head);
+      ["選手1","選手2","審判"].forEach((role,j)=>{
+        const line=document.createElement("div");line.className="role";
+        line.textContent=role+"："+(group[j]?group[j].name:"未配置");
+        if(!group[j])line.classList.add("empty");
+        card.append(line);
+      });
+      grid.append(card);
+    }
+  }
+  function render(){renderPlayers();renderTables();}
+
+  async function loadAll(){
+    if(!client){status("index.html にSupabase URLとanon keyを設定してください");render();return;}
+    loading=true;
+    const [pRes,sRes]=await Promise.all([
+      client.from("tt_players").select("*").eq("room_id",room),
+      client.from("tt_settings").select("*").eq("room_id",room).maybeSingle()
+    ]);
+    loading=false;
+    if(pRes.error||sRes.error){status("読み込みエラー: "+(pRes.error?.message||sRes.error?.message));return;}
+    players=pRes.data||[];
+    settings=sRes.data||{room_id:room,table_count:3};
+    if(!sRes.data){
+      const {error}=await client.from("tt_settings").upsert({room_id:room,table_count:3},{onConflict:"room_id"});
+      if(error)status("設定保存エラー: "+error.message);
+    }
+    render();status("Supabaseに接続中 · 変更は他の端末にも反映されます",true);
+  }
+  async function updatePlayer(id,patch){
+    if(!client)return;
+    const {error}=await client.from("tt_players").update(patch).eq("id",id).eq("room_id",room);
+    if(error)status("更新エラー: "+error.message);
+  }
+  async function subscribe(){
+    if(!client)return;
+    if(channel)await client.removeChannel(channel);
+    channel=client.channel("tt-room-"+room)
+      .on("postgres_changes",{event:"*",schema:"public",table:"tt_players",filter:"room_id=eq."+room},()=>loadAll())
+      .on("postgres_changes",{event:"*",schema:"public",table:"tt_settings",filter:"room_id=eq."+room},()=>loadAll())
+      .subscribe((state)=>{if(state==="SUBSCRIBED")status("共有中 · リアルタイム接続済み",true);});
+  }
+
+  $("addForm").addEventListener("submit",async e=>{
+    e.preventDefault();if(!client){status("先にSupabaseの設定をしてください");return;}
+    const name=$("nameInput").value.trim();if(!name)return;
+    const points=Math.max(0,Number($("pointsInput").value)||0);
+    const {error}=await client.from("tt_players").insert({room_id:room,name,points,resting:false});
+    if(error){status("追加エラー: "+error.message);return;}
+    $("nameInput").value="";$("pointsInput").value="0";await loadAll();
+  });
+  $("tableCount").addEventListener("change",async()=>{
+    if(!client)return;
+    const n=Math.min(14,Math.max(1,Number($("tableCount").value)||1));
+    const {error}=await client.from("tt_settings").upsert({room_id:room,table_count:n},{onConflict:"room_id"});
+    if(error)status("台数保存エラー: "+error.message);
+    else {settings.table_count=n;renderTables();}
+  });
+  $("changeRoom").addEventListener("click",()=>{
+    const next=$("roomInput").value.trim().replace(/[^a-zA-Z0-9_-]/g,"").slice(0,40);
+    if(!next){alert("共有コードを入力してください");return;}
+    room=next;params.set("room",room);history.replaceState(null,"",location.pathname+"?"+params.toString());
+    $("roomLabel").textContent="共有コード: "+room;players=[];settings={table_count:3};render();loadAll();subscribe();
+  });
+  if(client){loadAll();subscribe();}else{render();}
+})();
+</script>
+</body>
+</html>
