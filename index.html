@@ -190,15 +190,39 @@ small{color:#61717b}.toprow{display:flex;justify-content:space-between;gap:10px;
     }
   }
 
-  async function saveAll() {
-  if (saving) return false;
-  saving = true;
+async function saveAll() {
+    if (saving) return false;
+    saving = true;
 
-  try {
-    if (!passphrase) {
-      passphrase = prompt("クラブの編集パスワードを入力してください") || "";
+    try {
+      if (!passphrase) {
+        passphrase = prompt("クラブの編集パスワードを入力してください") || "";
+      }
+
+      if (!passphrase) {
+        status("保存をキャンセルしました");
+        return false;
+      }
+
+      const data = await request("load");
+      allState = data.state || {};
+
+      if (!allState.rooms) allState.rooms = {};
+      allState.rooms[room] = { players, settings };
+
+      await request("save", { passphrase, state: allState });
+
+      status("共有データを保存しました", true);
+      render();
+      return true;
+    } catch (e) {
+      if (e.message.includes("パスワード")) passphrase = "";
+      status("保存エラー: " + e.message);
+      return false;
+    } finally {
+      saving = false;
     }
-
+  }
    
   async function updatePlayer(id,patch) {
     const old = players;
