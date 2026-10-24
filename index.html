@@ -37,6 +37,7 @@ small{color:#61717b}.toprow{display:flex;justify-content:space-between;gap:10px;
   <p class="muted">同じ共有コードのページを開くと同じデータを表示します。別のグループは別の共有コードを使ってください。</p>
   <div class="row"><label for="roomInput">共有コード</label><input id="roomInput" value="club1" maxlength="40"><button id="changeRoom" class="secondary">この共有コードを開く</button></div>
   <button id="backupBtn" class="secondary">バックアップをダウンロード</button>
+  <input id="restoreFile" type="file" accept=".json,application/json">
   <p class="muted">初回は下の説明に従ってSupabaseのURLと公開用 anon keyを設定してください。</p>
 </section>
 <section class="panel">
@@ -312,6 +313,53 @@ async function saveAll() {
       status("バックアップ失敗: " + e.message);
     }
   })
+   $("restoreFile").addEventListener("change", async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+      const text = await file.text();
+      const backup = JSON.parse(text);
+
+      if (
+        !backup ||
+        !backup.state ||
+        typeof backup.state !== "object" ||
+        Array.isArray(backup.state) ||
+        !backup.state.rooms ||
+        typeof backup.state.rooms !== "object"
+      ) {
+        throw new Error("バックアップファイルの形式が正しくありません");
+      }
+
+      if (!confirm(
+        "現在の共有データをバックアップ時点のデータに置き換えます。先に現在のデータをバックアップしましたか？"
+      )) return;
+
+      if (!passphrase) {
+        passphrase = prompt("編集パスワードを入力してください") || "";
+      }
+      if (!passphrase) {
+        status("復元をキャンセルしました");
+        return;
+      }
+
+      await request("save", {
+        passphrase,
+        state: backup.state
+      });
+
+      await loadAll();
+      status("バックアップから復元しました", true);
+    } catch (err) {
+      if (String(err.message).includes("パスワード")) {
+        passphrase = "";
+      }
+      status("復元エラー: " + err.message);
+    } finally {
+      e.target.value = "";
+    }
+  });
 
   loadAll();
 })();
