@@ -60,114 +60,221 @@ small{color:#61717b}.toprow{display:flex;justify-content:space-between;gap:10px;
 <script>
 (() => {
   // Supabaseの Project URL と anon public key をここに設定します。
-  const SUPABASE_URL = "YOUR_SUPABASE_URL";
-  const SUPABASE_ANON_KEY = "YOUR_SUPABASE_ANON_KEY";
-  const configured = SUPABASE_URL.startsWith("https://") && !SUPABASE_URL.includes("YOUR_") && !SUPABASE_ANON_KEY.includes("YOUR_");
-  const client = configured ? window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY) : null;
+  const SUPABASE_URL = "https://kerhpgagsmvkpfrydqgk.supabase.co/rest/v1/";
+  const SUPABASE_ANON_KEY = "sb_publishable_RyWQe3yWhdqWHBW0FDaIWA_wAIofT0O";
+   const FUNCTION_URL = SUPABASE_URL + "/functions/v1/club-ranking";
   const $ = id => document.getElementById(id);
   const params = new URLSearchParams(location.search);
   let room = (params.get("room") || "club1").replace(/[^a-zA-Z0-9_-]/g,"").slice(0,40) || "club1";
   let players = [];
   let settings = {table_count:3};
-  let channel = null;
-  let loading = false;
+  let allState = {};
+  let passphrase = "";
+
   $("roomInput").value = room;
   $("roomLabel").textContent = "共有コード: " + room;
 
-  function status(msg, ok=false){ $("status").textContent=msg; $("status").className=ok?"ok":"bad"; }
-  function sorted(){ return [...players].sort((a,b)=>Number(b.points)-Number(a.points) || String(a.name).localeCompare(String(b.name),"ja")); }
+  function status(msg, ok=false) {
+    $("status").textContent = msg;
+    $("status").className = ok ? "ok" : "bad";
+  }
 
-  function renderPlayers(){
-    const list = $("playersList"); const ranking = sorted();
+  async function request(action, extra={}) {
+    const response = await fetch(FUNCTION_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "apikey": SUPABASE_ANON_KEY,
+        "Authorization": "Bearer " + SUPABASE_ANON_KEY
+      },
+      body: JSON.stringify({action, ...extra})
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || "通信に失敗しました");
+    return data;
+  }
+
+  function sorted() {
+    return [...players].sort((a,b) =>
+      Number(b.points)-Number(a.points) ||
+      String(a.name).localeCompare(String(b.name),"ja")
+    );
+  }
+
+  function renderPlayers() {
+    const list = $("playersList");
+    const ranking = sorted();
     $("activeCount").textContent = ranking.filter(p=>!p.resting).length;
     $("restCount").textContent = ranking.filter(p=>p.resting).length;
-    if(!ranking.length){list.innerHTML='<p class="muted">選手がいません。上から選手を追加してください。</p>';return;}
-    list.innerHTML="";
-    ranking.forEach((p,i)=>{
-      const row=document.createElement("div");row.className="player";
-      const rank=document.createElement("div");rank.className="rank";rank.textContent=i+1;
-      const name=document.createElement("div");name.className="pname";name.textContent=p.name+(p.resting?" (休み中)":"");
-      const points=document.createElement("input");points.className="points";points.type="number";points.min="0";points.step="1";points.value=p.points;points.title="ポイント";
-      points.addEventListener("change",()=>updatePlayer(p.id,{points:Math.max(0,Number(points.value)||0)}));
-      const action=document.createElement("button");action.className=p.resting?"secondary":"danger";action.textContent=p.resting?"復帰":"休む";
-      action.addEventListener("click",()=>updatePlayer(p.id,{resting:!p.resting}));
-      row.append(rank,name,points,action);list.append(row);
+    list.innerHTML = "";
+
+    if (!ranking.length) {
+      list.innerHTML = '<p class="muted">選手がいません。上から選手を追加してください。</p>';
+      return;
+    }
+
+    ranking.forEach((p,i) => {
+      const row = document.createElement("div");
+      row.className = "player";
+      const rank = document.createElement("div");
+      rank.className = "rank";
+      rank.textContent = i+1;
+      const name = document.createElement("div");
+      name.className = "pname";
+      name.textContent = p.name + (p.resting ? " (休み中)" : "");
+      const points = document.createElement("input");
+      points.className = "points";
+      points.type = "number";
+      points.min = "0";
+      points.step = "1";
+      points.value = p.points;
+      points.title = "ポイント";
+      points.addEventListener("change", () =>
+        updatePlayer(p.id,{points:Math.max(0,Number(points.value)||0)})
+      );
+      const action = document.createElement("button");
+      action.className = p.resting ? "secondary" : "danger";
+      action.textContent = p.resting ? "復帰" : "休む";
+      action.addEventListener("click", () =>
+        updatePlayer(p.id,{resting:!p.resting})
+      );
+      row.append(rank,name,points,action);
+      list.append(row);
     });
   }
 
-  function renderTables(){
-    const count=Number(settings.table_count)||3;
-    $("tableCount").value=String(count);
-    const active=sorted().filter(p=>!p.resting);
-    const grid=$("tableGrid");grid.innerHTML="";
-    for(let i=0;i<count;i++){
-      const group=active.slice(i*3,i*3+3);
-      const card=document.createElement("div");card.className="tablecard";
-      const head=document.createElement("div");head.className="tablehead";head.textContent="卓球台 "+(i+1);card.append(head);
-      ["選手1","選手2","審判"].forEach((role,j)=>{
-        const line=document.createElement("div");line.className="role";
-        line.textContent=role+"："+(group[j]?group[j].name:"未配置");
-        if(!group[j])line.classList.add("empty");
+  function renderTables() {
+    const count = Number(settings.table_count)||3;
+    $("tableCount").value = String(count);
+    const active = sorted().filter(p=>!p.resting);
+    const grid = $("tableGrid");
+    grid.innerHTML = "";
+
+    for (let i=0;i<count;i++) {
+      const group = active.slice(i*3,i*3+3);
+      const card = document.createElement("div");
+      card.className = "tablecard";
+      const head = document.createElement("div");
+      head.className = "tablehead";
+      head.textContent = "卓球台 "+(i+1);
+      card.append(head);
+
+      ["選手1","選手2","審判"].forEach((role,j) => {
+        const line = document.createElement("div");
+        line.className = "role";
+        line.textContent = role+"："+(group[j]?group[j].name:"未配置");
+        if (!group[j]) line.classList.add("empty");
         card.append(line);
       });
       grid.append(card);
     }
   }
-  function render(){renderPlayers();renderTables();}
 
-  async function loadAll(){
-    if(!client){status("index.html にSupabase URLとanon keyを設定してください");render();return;}
-    loading=true;
-    const [pRes,sRes]=await Promise.all([
-      client.from("tt_players").select("*").eq("room_id",room),
-      client.from("tt_settings").select("*").eq("room_id",room).maybeSingle()
-    ]);
-    loading=false;
-    if(pRes.error||sRes.error){status("読み込みエラー: "+(pRes.error?.message||sRes.error?.message));return;}
-    players=pRes.data||[];
-    settings=sRes.data||{room_id:room,table_count:3};
-    if(!sRes.data){
-      const {error}=await client.from("tt_settings").upsert({room_id:room,table_count:3},{onConflict:"room_id"});
-      if(error)status("設定保存エラー: "+error.message);
+  function render() {
+    renderPlayers();
+    renderTables();
+  }
+
+  async function loadAll() {
+    try {
+      const data = await request("load");
+      allState = data.state || {};
+      const roomData = allState.rooms?.[room] || {};
+      players = roomData.players || [];
+      settings = roomData.settings || {table_count:3};
+      render();
+      status("共有データを読み込みました",true);
+    } catch (e) {
+      status("読み込みエラー: "+e.message);
     }
-    render();status("Supabaseに接続中 · 変更は他の端末にも反映されます",true);
-  }
-  async function updatePlayer(id,patch){
-    if(!client)return;
-    const {error}=await client.from("tt_players").update(patch).eq("id",id).eq("room_id",room);
-    if(error)status("更新エラー: "+error.message);
-  }
-  async function subscribe(){
-    if(!client)return;
-    if(channel)await client.removeChannel(channel);
-    channel=client.channel("tt-room-"+room)
-      .on("postgres_changes",{event:"*",schema:"public",table:"tt_players",filter:"room_id=eq."+room},()=>loadAll())
-      .on("postgres_changes",{event:"*",schema:"public",table:"tt_settings",filter:"room_id=eq."+room},()=>loadAll())
-      .subscribe((state)=>{if(state==="SUBSCRIBED")status("共有中 · リアルタイム接続済み",true);});
   }
 
-  $("addForm").addEventListener("submit",async e=>{
-    e.preventDefault();if(!client){status("先にSupabaseの設定をしてください");return;}
-    const name=$("nameInput").value.trim();if(!name)return;
-    const points=Math.max(0,Number($("pointsInput").value)||0);
-    const {error}=await client.from("tt_players").insert({room_id:room,name,points,resting:false});
-    if(error){status("追加エラー: "+error.message);return;}
-    $("nameInput").value="";$("pointsInput").value="0";await loadAll();
+  async function saveAll() {
+    if (!passphrase) {
+      passphrase = prompt("クラブの編集パスワードを入力してください") || "";
+    }
+    if (!passphrase) {
+      status("保存をキャンセルしました");
+      return false;
+    }
+
+    try {
+      const data = await request("load");
+      allState = data.state || {};
+      if (!allState.rooms) allState.rooms = {};
+      allState.rooms[room] = {players,settings};
+
+      await request("save",{passphrase,state:allState});
+      status("共有データを保存しました",true);
+      render();
+      return true;
+    } catch (e) {
+      if (e.message.includes("パスワード")) passphrase = "";
+      status("保存エラー: "+e.message);
+      return false;
+    }
+  }
+
+  async function updatePlayer(id,patch) {
+    const old = players;
+    players = players.map(p => p.id===id ? {...p,...patch} : p);
+    render();
+    if (!await saveAll()) {
+      players = old;
+      render();
+    }
+  }
+
+  $("addForm").addEventListener("submit",async e => {
+    e.preventDefault();
+    const name = $("nameInput").value.trim();
+    if (!name) return;
+    const old = players;
+    players = [...players,{
+      id: crypto.randomUUID(),
+      name,
+      points: Math.max(0,Number($("pointsInput").value)||0),
+      resting:false
+    }];
+    render();
+
+    if (await saveAll()) {
+      $("nameInput").value = "";
+      $("pointsInput").value = "0";
+    } else {
+      players = old;
+      render();
+    }
   });
-  $("tableCount").addEventListener("change",async()=>{
-    if(!client)return;
-    const n=Math.min(14,Math.max(1,Number($("tableCount").value)||1));
-    const {error}=await client.from("tt_settings").upsert({room_id:room,table_count:n},{onConflict:"room_id"});
-    if(error)status("台数保存エラー: "+error.message);
-    else {settings.table_count=n;renderTables();}
+
+  $("tableCount").addEventListener("change",async () => {
+    const old = settings;
+    settings = {
+      ...settings,
+      table_count:Math.min(14,Math.max(1,Number($("tableCount").value)||1))
+    };
+    render();
+    if (!await saveAll()) {
+      settings = old;
+      render();
+    }
   });
-  $("changeRoom").addEventListener("click",()=>{
-    const next=$("roomInput").value.trim().replace(/[^a-zA-Z0-9_-]/g,"").slice(0,40);
-    if(!next){alert("共有コードを入力してください");return;}
-    room=next;params.set("room",room);history.replaceState(null,"",location.pathname+"?"+params.toString());
-    $("roomLabel").textContent="共有コード: "+room;players=[];settings={table_count:3};render();loadAll();subscribe();
+
+  $("changeRoom").addEventListener("click",async () => {
+    const next = $("roomInput").value.trim().replace(/[^a-zA-Z0-9_-]/g,"").slice(0,40);
+    if (!next) {
+      alert("共有コードを入力してください");
+      return;
+    }
+    room = next;
+    params.set("room",room);
+    history.replaceState(null,"",location.pathname+"?"+params.toString());
+    $("roomLabel").textContent = "共有コード: "+room;
+    await loadAll();
   });
-  if(client){loadAll();subscribe();}else{render();}
+
+  loadAll();
+  setInterval(loadAll,10000);
 })();
 </script>
 </body>
