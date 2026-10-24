@@ -60,7 +60,7 @@ small{color:#61717b}.toprow{display:flex;justify-content:space-between;gap:10px;
 <script>
 (() => {
   // Supabaseの Project URL と anon public key をここに設定します。
-  const SUPABASE_URL = "https://kerhpgagsmvkpfrydqgk.supabase.co/rest/v1/";
+  const SUPABASE_URL = "https://kerhpgagsmvkpfrydqgk.supabase.co";
   const SUPABASE_ANON_KEY = "sb_publishable_RyWQe3yWhdqWHBW0FDaIWA_wAIofT0O";
    const FUNCTION_URL = SUPABASE_URL + "/functions/v1/club-ranking";
   const $ = id => document.getElementById(id);
@@ -274,7 +274,6 @@ small{color:#61717b}.toprow{display:flex;justify-content:space-between;gap:10px;
   });
 
   loadAll();
-  setInterval(loadAll,10000);
 })();
 </script>
 </body>
