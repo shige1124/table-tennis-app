@@ -36,6 +36,7 @@ small{color:#61717b}.toprow{display:flex;justify-content:space-between;gap:10px;
   <div class="toprow"><h2>共有設定</h2><span class="pill" id="roomLabel"></span></div>
   <p class="muted">同じ共有コードのページを開くと同じデータを表示します。別のグループは別の共有コードを使ってください。</p>
   <div class="row"><label for="roomInput">共有コード</label><input id="roomInput" value="club1" maxlength="40"><button id="changeRoom" class="secondary">この共有コードを開く</button></div>
+  <button id="backupBtn" class="secondary">バックアップをダウンロード</button>
   <p class="muted">初回は下の説明に従ってSupabaseのURLと公開用 anon keyを設定してください。</p>
 </section>
 <section class="panel">
@@ -281,6 +282,36 @@ async function saveAll() {
     $("roomLabel").textContent = "共有コード: "+room;
     await loadAll();
   });
+  
+  $("backupBtn").addEventListener("click", async () => {
+    try {
+      status("バックアップを準備しています…");
+
+      const data = await request("load");
+      const backup = {
+        app: "卓球ランキングアプリ",
+        savedAt: new Date().toISOString(),
+        state: data.state || {}
+      };
+
+      const blob = new Blob(
+        [JSON.stringify(backup, null, 2)],
+        { type: "application/json" }
+      );
+
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "table-tennis-backup-" +
+        new Date().toISOString().slice(0, 10) + ".json";
+      a.click();
+      URL.revokeObjectURL(url);
+
+      status("バックアップをダウンロードしました", true);
+    } catch (e) {
+      status("バックアップ失敗: " + e.message);
+    }
+  })
 
   loadAll();
 })();
